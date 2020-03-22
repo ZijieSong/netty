@@ -116,6 +116,8 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
      * @return {@code true} if this subpage is in use.
      *         {@code false} if this subpage is not used by its chunk and thus it's OK to be released.
      */
+    //释放subpage位于bitmapIdx处的内存，并维护l2 cache
+    //返回是否还有分配出去的内存
     boolean free(PoolSubpage<T> head, int bitmapIdx) {
         if (elemSize == 0) {
             return true;
@@ -123,24 +125,30 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
         int q = bitmapIdx >>> 6;
         int r = bitmapIdx & 63;
         assert (bitmap[q] >>> r & 1) != 0;
+        //将bitmap中该buf对应的子块置为未使用状态
         bitmap[q] ^= 1L << r;
 
         setNextAvail(bitmapIdx);
 
+        //增加该page的可用内存块数量，若在释放前没有可使用的内存，则释放后理应重新加入到l2 cache中去
         if (numAvail ++ == 0) {
             addToPool(head);
             return true;
         }
 
+        //若该page仍有分配出去的subpage，直接返回true
         if (numAvail != maxNumElems) {
             return true;
         } else {
             // Subpage not in use (numAvail == maxNumElems)
             if (prev == next) {
+                //如果当前l2 cache的该规格元素的链表只有这一个节点，则返回true
                 // Do not remove if this subpage is the only one left in the pool.
                 return true;
             }
 
+            //如果还有别的节点，那么将当前节点从l2 cache中移除
+            //返回false，后续会对该page进行二次释放
             // Remove this subpage from the pool if there are other subpages left in the pool.
             doNotDestroy = false;
             removeFromPool();

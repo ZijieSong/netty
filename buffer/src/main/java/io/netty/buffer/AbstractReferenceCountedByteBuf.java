@@ -105,6 +105,7 @@ public abstract class AbstractReferenceCountedByteBuf extends AbstractByteBuf {
         return handleRelease(updater.release(this, decrement));
     }
 
+    //处理释放逻辑
     private boolean handleRelease(boolean result) {
         if (result) {
             deallocate();

@@ -206,14 +206,17 @@ final class PoolThreadCache {
     @SuppressWarnings({ "unchecked", "rawtypes" })
     boolean add(PoolArena<?> area, PoolChunk chunk, ByteBuffer nioBuffer,
                 long handle, int normCapacity, SizeClass sizeClass) {
+        //根据该buf的normCapacity所对应的缓存规格大小，找到相应缓存数组中的缓存规格元素cache
         MemoryRegionCache<?> cache = cache(area, normCapacity, sizeClass);
         if (cache == null) {
             return false;
         }
+        //将当前buf对应的内存块的index和length封装成entry加到cache的queue里
         return cache.add(chunk, nioBuffer, handle);
     }
 
     private MemoryRegionCache<?> cache(PoolArena<?> area, int normCapacity, SizeClass sizeClass) {
+        //根据不同的sizeclass，找到normCapacity对应的缓存数组中的index，返回该index对应的cache节点
         switch (sizeClass) {
         case Normal:
             return cacheForNormal(area, normCapacity);
@@ -396,7 +399,11 @@ final class PoolThreadCache {
          */
         @SuppressWarnings("unchecked")
         public final boolean add(PoolChunk<T> chunk, ByteBuffer nioBuffer, long handle) {
+            //将bytebuf中的完整内存块chunk和索引handle封装为entry
+            //对于normal来说，handle是一个平衡二叉树的节点，天然包含了index和length
+            //对于tiny和small老说，handle低32为二叉树叶节点index，高32为叶节点中subpage的index
             Entry<T> entry = newEntry(chunk, nioBuffer, handle);
+            //将该entry加到cache的queue里，等待分配
             boolean queued = queue.offer(entry);
             if (!queued) {
                 // If it was not possible to cache the chunk, immediately recycle the entry

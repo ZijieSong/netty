@@ -100,7 +100,9 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
     }
 
     boolean free(PoolChunk<T> chunk, long handle, ByteBuffer nioBuffer) {
+        //真正释放内存入口
         chunk.free(handle, nioBuffer);
+        //如果当前chunk的实际使用内存低于了下限，则移动到合适的chunk list中去
         if (chunk.usage() < minUsage) {
             remove(chunk);
             // Move the PoolChunk down the PoolChunkList linked-list.

@@ -308,17 +308,22 @@ abstract class PoolArena<T> implements PoolArenaMetric {
 
     void free(PoolChunk<T> chunk, ByteBuffer nioBuffer, long handle, int normCapacity, PoolThreadCache cache) {
         if (chunk.unpooled) {
+            //对于huge而言，直接销毁内存
+            //对于堆内内存，等待gc，对于堆外内存，系统调用进行释放
             int size = chunk.chunkSize();
             destroyChunk(chunk);
             activeBytesHuge.add(-size);
             deallocationsHuge.increment();
         } else {
+            //对于非huge的处理，先找到其对应的size规格
             SizeClass sizeClass = sizeClass(normCapacity);
+            //将释放掉的内存加入到l1 cache中
             if (cache != null && cache.add(this, chunk, nioBuffer, handle, normCapacity, sizeClass)) {
                 // cached so not free it.
                 return;
             }
 
+            //如果加l1 cache失败，则走释放内存逻辑
             freeChunk(chunk, handle, sizeClass, nioBuffer, false);
         }
     }
@@ -350,6 +355,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
                         throw new Error();
                 }
             }
+            //释放chunk中page或subpage的内存
             destroyChunk = !chunk.parent.free(chunk, handle, nioBuffer);
         }
         if (destroyChunk) {

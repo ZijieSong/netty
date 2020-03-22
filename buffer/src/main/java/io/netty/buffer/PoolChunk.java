@@ -401,24 +401,36 @@ final class PoolChunk<T> implements PoolChunkMetric {
      * @param handle handle to free
      */
     void free(long handle, ByteBuffer nioBuffer) {
+        //根据handle生成memory map的索引，即page所在位置
         int memoryMapIdx = memoryMapIdx(handle);
+        //根据handle生成bitmap的索引，即subpage位于page的位置
         int bitmapIdx = bitmapIdx(handle);
 
         if (bitmapIdx != 0) { // free a subpage
+            //这块逻辑针对subpage的释放而言
+            //首先找到当前chunk中相应的subpage
             PoolSubpage<T> subpage = subpages[subpageIdx(memoryMapIdx)];
             assert subpage != null && subpage.doNotDestroy;
 
             // Obtain the head of the PoolSubPage pool that is owned by the PoolArena and synchronize on it.
             // This is need as we may add it back and so alter the linked-list structure.
+
+            //找到当前subpage规格大小对应的arena的l2 cache中的subpage规则数组中的元素，也就是头节点head
             PoolSubpage<T> head = arena.findSubpagePoolHead(subpage.elemSize);
             synchronized (head) {
+                //释放subpage内存，并维护l2 cache
                 if (subpage.free(head, bitmapIdx & 0x3FFFFFFF)) {
+                    //如果无需进行二次释放，直接返回
                     return;
                 }
             }
         }
+        //当释放一个page的时候会走这里
+        //有两种情况，一种是在release的时候大小为normal的，一种是release的时候大小为tiny/small，但是释放后subpage是空的，并从l2 cache中移除了，需要进行二次释放
         freeBytes += runLength(memoryMapIdx);
+        //将该page节点的value重置为depth
         setValue(memoryMapIdx, depth(memoryMapIdx));
+        //更新所有父节点的value
         updateParentsFree(memoryMapIdx);
 
         if (nioBuffer != null && cachedNioBuffers != null &&

@@ -168,9 +168,17 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
     @Override
     protected final void deallocate() {
         if (handle >= 0) {
+            //重置属性
             final long handle = this.handle;
             this.handle = -1;
             memory = null;
+            //释放内存的核心流程
+            //对于huge而言，为非池化的chunk，直接系统调用释放掉该chunk的堆外内存即可
+            //对于normal和small、tiny而言，为池化，需要先将该块内存的index和length封装为一个entry加到l1 cache的相应规格元素节点的queue中
+            //如果l1 cache加失败，对于normal而言，需要把相应的page节点value改掉，并修改其所有父节点的value
+            //对于small、tiny而言，需要把subpage的bitmap维护好，如果原先的内存是满的，则需要把该subpage加到chunk的l2 cache中去
+            //如果修改后的内存是空的，则需要从l2 cache中移除该subpage
+            //将该subpage对应的page进行二次释放
             chunk.arena.free(chunk, tmpNioBuf, handle, maxLength, cache);
             tmpNioBuf = null;
             chunk = null;
