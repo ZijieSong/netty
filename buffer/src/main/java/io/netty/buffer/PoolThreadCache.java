@@ -164,6 +164,8 @@ final class PoolThreadCache {
      * Try to allocate a tiny buffer out of the cache. Returns {@code true} if successful {@code false} otherwise
      */
     boolean allocateTiny(PoolArena<?> area, PooledByteBuf<?> buf, int reqCapacity, int normCapacity) {
+        //通过cacheForTiny找到适用于normCapacity的缓存规格节点
+        //再通过allocate将该缓存节点赋值到buf中去
         return allocate(cacheForTiny(area, normCapacity), buf, reqCapacity);
     }
 
@@ -183,10 +185,12 @@ final class PoolThreadCache {
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private boolean allocate(MemoryRegionCache<?> cache, PooledByteBuf buf, int reqCapacity) {
+        //当没有缓存的时候直接返回false
         if (cache == null) {
             // no cache found so just return false here
             return false;
         }
+        //当有缓存的时候，通过缓存去走分配逻辑
         boolean allocated = cache.allocate(buf, reqCapacity);
         if (++ allocations >= freeSweepAllocationThreshold) {
             allocations = 0;
@@ -306,8 +310,10 @@ final class PoolThreadCache {
     }
 
     private MemoryRegionCache<?> cacheForTiny(PoolArena<?> area, int normCapacity) {
+        //先根据normCapacity计算出cache数组对应的元素位置index，如当normCapacity=16b时，对应的index=1
         int idx = PoolArena.tinyIdx(normCapacity);
         if (area.isDirect()) {
+            //直接返回cache[index]的缓存元素节点
             return cache(tinySubPageDirectCaches, idx);
         }
         return cache(tinySubPageHeapCaches, idx);
@@ -404,11 +410,14 @@ final class PoolThreadCache {
          * Allocate something out of the cache if possible and remove the entry from the cache.
          */
         public final boolean allocate(PooledByteBuf<T> buf, int reqCapacity) {
+            //通过当前cache节点拿到缓存队列，并弹出一个entry
             Entry<T> entry = queue.poll();
             if (entry == null) {
                 return false;
             }
+            //通过entry去初始化buf，传入entry的内存块及索引
             initBuf(entry.chunk, entry.nioBuffer, entry.handle, buf, reqCapacity);
+            //entry复用逻辑
             entry.recycle();
 
             // allocations is not thread-safe which is fine as this is only called from the same thread all time.

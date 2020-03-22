@@ -61,12 +61,15 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
         assert chunk != null;
 
         this.chunk = chunk;
+        //指向一整块内存
         memory = chunk.memory;
         tmpNioBuf = nioBuffer;
         allocator = chunk.arena.parent;
         this.cache = cache;
         this.handle = handle;
+        //偏移量
         this.offset = offset;
+        //长度
         this.length = length;
         this.maxLength = maxLength;
     }

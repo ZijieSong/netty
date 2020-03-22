@@ -83,9 +83,13 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
             return false;
         }
 
+        //循环遍历chunk list中的每一个chunk
         for (PoolChunk<T> cur = head; cur != null; cur = cur.next) {
+            //对每个chunk执行分配逻辑
             if (cur.allocate(buf, reqCapacity, normCapacity)) {
+                //如果分配成功，则判断chunk的已用内存是否超过了该chunk list的上限
                 if (cur.usage() >= maxUsage) {
+                    //如果超过了，则移动该chunk到相应的chunk list中去
                     remove(cur);
                     nextList.add(cur);
                 }

@@ -143,7 +143,9 @@ abstract class PoolArena<T> implements PoolArenaMetric {
     abstract boolean isDirect();
 
     PooledByteBuf<T> allocate(PoolThreadCache cache, int reqCapacity, int maxCapacity) {
+        //创建一个PooledByteBuf的空壳子buf
         PooledByteBuf<T> buf = newByteBuf(maxCapacity);
+        //给buf分配可使用的内存块
         allocate(cache, buf, reqCapacity);
         return buf;
     }
@@ -173,19 +175,30 @@ abstract class PoolArena<T> implements PoolArenaMetric {
     }
 
     private void allocate(PoolThreadCache cache, PooledByteBuf<T> buf, final int reqCapacity) {
+        //格式化reqCapacity
         final int normCapacity = normalizeCapacity(reqCapacity);
+        //判断是否是tiny或者small类型的，如果是则进入subPage的分配流程
         if (isTinyOrSmall(normCapacity)) { // capacity < pageSize
             int tableIdx;
             PoolSubpage<T>[] table;
             boolean tiny = isTiny(normCapacity);
+            //如果是tiny，进入tiny分配流程
             if (tiny) { // < 512
+                //首先去L1 cache分配tiny的内存块，该cache是由废弃的buf释放内存得到的
+                //当buf废弃时，会调用release方法将该buf对应内存的index和length封装成cache entry，放到相应cache规格数组元素的队列中去
                 if (cache.allocateTiny(this, buf, reqCapacity, normCapacity)) {
                     // was able to allocate out of the cache so move on
                     return;
                 }
+                //cache分配失败，则拿到L2 cache的table，tinySubpagePools，该数组和cache的结构相同，也是一个规格数组
+                //每个数组元素对应了一个固定规格，该元素形成了一个链表结构，记录了所有分配了部分内存的page节点
+                //当其中的page节点被分配完内存后，会从l2 cache中移除
+                //或者当page节点被buf释放掉后没有任何内存的分配，也会从l2 cache中移除
+                //由此可见，l1 cache中存储的是完全没有任何内存分配的subpage，而l2 存储的是分配了部分内存的page
                 tableIdx = tinyIdx(normCapacity);
                 table = tinySubpagePools;
             } else {
+                //small是同样的道理
                 if (cache.allocateSmall(this, buf, reqCapacity, normCapacity)) {
                     // was able to allocate out of the cache so move on
                     return;
@@ -194,40 +207,63 @@ abstract class PoolArena<T> implements PoolArenaMetric {
                 table = smallSubpagePools;
             }
 
+            //根据l2cache的规格数组及将要分配的内存对应的规则，找到l2cache的头节点
             final PoolSubpage<T> head = table[tableIdx];
 
             /**
              * Synchronize on the head. This is needed as {@link PoolChunk#allocateSubpage(int)} and
              * {@link PoolChunk#free(long)} may modify the doubly linked list as well.
              */
+            //加锁
             synchronized (head) {
+                //找到next节点
                 final PoolSubpage<T> s = head.next;
+                //当该l2 cache的元素链表中不止头节点这一个节点的时候，直接通过该节点分配内存即可
                 if (s != head) {
                     assert s.doNotDestroy && s.elemSize == normCapacity;
+                    //通过l2 cache进行分配，找到要分配内存对应的索引（index），并维护好该subpage的bitmap，用来记录每个分割内存的使用情况
+                    //同时若该page的内存被分配完了，要从l2 cache中移除
+                    //该handle包含了在chunk中的哪个page上分配（index1），及在该page的哪个subpage分配（index2）
                     long handle = s.allocate();
                     assert handle >= 0;
+                    //进行真正的内存分配，将内存的index和length赋给buf
                     s.chunk.initBufWithSubpage(buf, null, handle, reqCapacity);
                     incTinySmallAllocation(tiny);
                     return;
                 }
             }
             synchronized (this) {
+                //如果l1 cache和l2 cache都没有，就要走整个内存分配的流程
+                //找到一个能分配一个完整page内存的chunk
+                //找到该chunk下对应的完整page的index（伙伴算法）
+                //将该page封装成subpage，主要封装内容为 封装其bitmap，及mesh size等，并将其记录在chunk中的subpage list里
+                //找到arena的l2 cache相应的规格元素，将该subpage节点加入到元素的链表结构中，方便之后直接从l2 cache分配
+                //从该subpage节点中分配内存，找到相应的bit map index，并维护好bitmap的状态
+                //将值赋给buf完成分配
                 allocateNormal(buf, reqCapacity, normCapacity);
             }
 
             incTinySmallAllocation(tiny);
             return;
         }
+        //如果不是subPage的分配流程，则判断是不是正常内存块大小，如果是则进行page分配流程
         if (normCapacity <= chunkSize) {
+            //首先从缓存中分配，注意normal规格的只有这一个缓存结构
+            //同样根据大小找到cache数组中的规格元素节点，弹出一个节点进行分配
             if (cache.allocateNormal(this, buf, reqCapacity, normCapacity)) {
                 // was able to allocate out of the cache so move on
                 return;
             }
             synchronized (this) {
+                //如果缓存分配失败，直接走完整的分配流程
+                //在chunk中通过伙伴算法找到要分配大小对应的page节点的索引（index）
+                //通过index转换为chunk中内存块相应的地址，并赋给buf，完成分配
                 allocateNormal(buf, reqCapacity, normCapacity);
                 ++allocationsNormal;
             }
+        //如果不是page的分配流程，则进入huge的分配流程
         } else {
+            //直接申请堆外/内内存，走非池化的逻辑
             // Huge allocations are never served via the cache so just call allocateHuge
             allocateHuge(buf, reqCapacity);
         }
@@ -235,16 +271,21 @@ abstract class PoolArena<T> implements PoolArenaMetric {
 
     // Method must be called inside synchronized(this) { ... } block
     private void allocateNormal(PooledByteBuf<T> buf, int reqCapacity, int normCapacity) {
+        //arena中维护了5个的chunk list，每个chunk list各自有着不同的空间使用率
+        //首先通过chunk list找到一个已有的chunk进行内存分配
         if (q050.allocate(buf, reqCapacity, normCapacity) || q025.allocate(buf, reqCapacity, normCapacity) ||
             q000.allocate(buf, reqCapacity, normCapacity) || qInit.allocate(buf, reqCapacity, normCapacity) ||
             q075.allocate(buf, reqCapacity, normCapacity)) {
             return;
         }
 
+        //如果无法从已有的chunk中非配内存，则创建一个新的chunk
         // Add a new chunk.
         PoolChunk<T> c = newChunk(pageSize, maxOrder, pageShifts, chunkSize);
+        //通过新的chunk进行内存分配
         boolean success = c.allocate(buf, reqCapacity, normCapacity);
         assert success;
+        //把新的chunk添加到chunklist中去统一管理
         qInit.add(c);
     }
 
@@ -257,8 +298,10 @@ abstract class PoolArena<T> implements PoolArenaMetric {
     }
 
     private void allocateHuge(PooledByteBuf<T> buf, int reqCapacity) {
+        //直接新建一个非池化chunk
         PoolChunk<T> chunk = newUnpooledChunk(reqCapacity);
         activeBytesHuge.add(chunk.chunkSize());
+        //进行buf内存分配
         buf.initUnpooled(chunk, reqCapacity);
         allocationsHuge.increment();
     }

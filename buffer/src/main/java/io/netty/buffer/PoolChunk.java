@@ -222,11 +222,14 @@ final class PoolChunk<T> implements PoolChunkMetric {
         return 100 - freePercentage;
     }
 
+    //chunk纬度分配内存
     boolean allocate(PooledByteBuf<T> buf, int reqCapacity, int normCapacity) {
         final long handle;
         if ((normCapacity & subpageOverflowMask) != 0) { // >= pageSize
+            //执行分配正常内存page逻辑，返回索引index，即memory map index（page的索引）
             handle =  allocateRun(normCapacity);
         } else {
+            //执行分配sub page逻辑，返回memory map index + bit map index
             handle = allocateSubpage(normCapacity);
         }
 
@@ -234,6 +237,7 @@ final class PoolChunk<T> implements PoolChunkMetric {
             return false;
         }
         ByteBuffer nioBuffer = cachedNioBuffers != null ? cachedNioBuffers.pollLast() : null;
+        //给buf赋值，即分配内存
         initBuf(buf, nioBuffer, handle, reqCapacity);
         return true;
     }
@@ -290,26 +294,34 @@ final class PoolChunk<T> implements PoolChunkMetric {
      * @param d depth
      * @return index in memoryMap
      */
+    //伙伴算法，memory数组实际上为一个完全平衡二叉树
     private int allocateNode(int d) {
         int id = 1;
         int initial = - (1 << d); // has last d bits = 0 and rest all = 1
+        //val为当前节点的value，初始值为深度depth
         byte val = value(id);
         if (val > d) { // unusable
             return -1;
         }
+        //当val比目标深度小时，id*2找到下一层节点
         while (val < d || (id & initial) == 0) { // id & initial == 1 << d for all ids at depth d, for < d it is 0
             id <<= 1;
             val = value(id);
+            //如果当前节点的val超过了d，则找兄弟节点的val
             if (val > d) {
                 id ^= 1;
                 val = value(id);
             }
         }
+        //退出循环时，意味着已经找到了合适的节点，当前节点的val等于d
         byte value = value(id);
         assert value == d && (id & initial) == 1 << d : String.format("val = %d, id & initial = %d, d = %d",
                 value, id & initial, d);
+        //设置当前节点为不可用
         setValue(id, unusable); // mark as unusable
+        //更新其所有父节点的value，为两个子节点最小值
         updateParentsAlloc(id);
+        //返回适合节点的id
         return id;
     }
 
@@ -320,11 +332,14 @@ final class PoolChunk<T> implements PoolChunkMetric {
      * @return index in memoryMap
      */
     private long allocateRun(int normCapacity) {
+        //通过normCapacity找到要寻找的平衡二叉树深度d
         int d = maxOrder - (log2(normCapacity) - pageShifts);
+        //通过伙伴算法定位到合适的节点的id
         int id = allocateNode(d);
         if (id < 0) {
             return id;
         }
+        //维护好剩余可用字节
         freeBytes -= runLength(id);
         return id;
     }
@@ -336,30 +351,43 @@ final class PoolChunk<T> implements PoolChunkMetric {
      * @param normCapacity normalized capacity
      * @return index in memoryMap
      */
+    //分配sub page的内存块
     private long allocateSubpage(int normCapacity) {
         // Obtain the head of the PoolSubPage pool that is owned by the PoolArena and synchronize on it.
         // This is need as we may add it back and so alter the linked-list structure.
+        //通过normCapacity找到arena的l2 cache的相应规格元素的头节点
+        //用于后期将新分配的subpage加到该链表中去
         PoolSubpage<T> head = arena.findSubpagePoolHead(normCapacity);
+        //subpage只在叶节点处分配，所以他想要的深度是在maxOrder
         int d = maxOrder; // subpages are only be allocated from pages i.e., leaves
         synchronized (head) {
+
+            //根据目标深度找到可用节点id，伙伴算法
             int id = allocateNode(d);
             if (id < 0) {
                 return id;
             }
 
+            //拿到该chunk的成员变量subpages数组，里边存了2048个叶节点page
             final PoolSubpage<T>[] subpages = this.subpages;
             final int pageSize = this.pageSize;
 
             freeBytes -= pageSize;
 
+            //通过可用节点id定位到该page在subpage数组中的位置，取出该元素subpage
             int subpageIdx = subpageIdx(id);
             PoolSubpage<T> subpage = subpages[subpageIdx];
+            //一开始该位置为null
             if (subpage == null) {
+                //新建一个sub page节点，维护好其page size，memory map index（所处page的索引），bitmap等属性
+                //并添加到l2 cache中
                 subpage = new PoolSubpage<T>(head, this, id, runOffset(id), pageSize, normCapacity);
                 subpages[subpageIdx] = subpage;
             } else {
+                //维护好bitmap并加到l2 cache中
                 subpage.init(head, normCapacity);
             }
+            //通过该subpage来分配内存，其实是找到可用内存的索引
             return subpage.allocate();
         }
     }
@@ -400,19 +428,26 @@ final class PoolChunk<T> implements PoolChunkMetric {
     }
 
     void initBuf(PooledByteBuf<T> buf, ByteBuffer nioBuffer, long handle, int reqCapacity) {
+        //通过handle拿到page的索引位置
         int memoryMapIdx = memoryMapIdx(handle);
+        //通过handle拿到subpage相对与page的索引位置
         int bitmapIdx = bitmapIdx(handle);
         if (bitmapIdx == 0) {
+            //此处为分配page及以上内存的逻辑
+            //验证page索引位置的value为不可用
             byte val = value(memoryMapIdx);
             assert val == unusable : String.valueOf(val);
+            //初始化buf
             buf.init(this, nioBuffer, handle, runOffset(memoryMapIdx) + offset,
                     reqCapacity, runLength(memoryMapIdx), arena.parent.threadCache());
         } else {
+            //此处为分配subpage的逻辑
             initBufWithSubpage(buf, nioBuffer, handle, bitmapIdx, reqCapacity);
         }
     }
 
     void initBufWithSubpage(PooledByteBuf<T> buf, ByteBuffer nioBuffer, long handle, int reqCapacity) {
+        //分配内存给buf，注意该handle为低32代表page的地址，高32代表page上subpage的地址（bitMapIndex）
         initBufWithSubpage(buf, nioBuffer, handle, bitmapIdx(handle), reqCapacity);
     }
 
@@ -420,14 +455,19 @@ final class PoolChunk<T> implements PoolChunkMetric {
                                     long handle, int bitmapIdx, int reqCapacity) {
         assert bitmapIdx != 0;
 
+        //根据handle拿到page的index
         int memoryMapIdx = memoryMapIdx(handle);
 
+        //chunk维护了一个subpage数组，该数组大小为2048，记录了所有的叶page节点
+        //通过page的index找到该数组中的subpage节点
         PoolSubpage<T> subpage = subpages[subpageIdx(memoryMapIdx)];
         assert subpage.doNotDestroy;
         assert reqCapacity <= subpage.elemSize;
 
+        //真正的赋值逻辑
         buf.init(
             this, nioBuffer, handle,
+            //找到page的偏移量，加上subpage的偏移量作为总偏移量
             runOffset(memoryMapIdx) + (bitmapIdx & 0x3FFFFFFF) * subpage.elemSize + offset,
                 reqCapacity, subpage.elemSize, arena.parent.threadCache());
     }

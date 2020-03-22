@@ -49,9 +49,12 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
 
     PoolSubpage(PoolSubpage<T> head, PoolChunk<T> chunk, int memoryMapIdx, int runOffset, int pageSize, int elemSize) {
         this.chunk = chunk;
+        //该subpage对应的page的index
         this.memoryMapIdx = memoryMapIdx;
+        //偏移量
         this.runOffset = runOffset;
         this.pageSize = pageSize;
+        //新建一个bitmap，该数组中每一个bit代表了一个子块的使用状态
         bitmap = new long[pageSize >>> 10]; // pageSize / 16 / 64
         init(head, elemSize);
     }
@@ -67,16 +70,19 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
                 bitmapLength ++;
             }
 
+            //初始化bitmap
             for (int i = 0; i < bitmapLength; i ++) {
                 bitmap[i] = 0;
             }
         }
+        //将当前subpage加到l2 cache中，方便下次直接分配
         addToPool(head);
     }
 
     /**
      * Returns the bitmap index of the subpage allocation.
      */
+    //寻找合适的index
     long allocate() {
         if (elemSize == 0) {
             return toHandle(0);
@@ -86,16 +92,23 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
             return -1;
         }
 
+        //找到当前subPage的下一个可用的内存子块的index，也就是bitMapIndex
+        //subPage的bitmap0代表可用，1代表不可以，也就是找到0的index
         final int bitmapIdx = getNextAvail();
         int q = bitmapIdx >>> 6;
         int r = bitmapIdx & 63;
         assert (bitmap[q] >>> r & 1) == 0;
+        //将bitmap中的index位置置为1，代表该子块被占用
         bitmap[q] |= 1L << r;
 
+        //如果被分配完后当前subpage无可用内存，则直接从l2 cache中移除
+        //别忘了l2 cache中只记录了由可用内存且分配了一部分内存的subpage
         if (-- numAvail == 0) {
             removeFromPool();
         }
 
+        //通过bitmapIndex构造handle索引
+        //该handle索引包含了该subpage对应page的index及该subpage子块本身的index
         return toHandle(bitmapIdx);
     }
 
