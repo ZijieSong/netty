@@ -376,10 +376,12 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     public final ChannelPipeline addLast(EventExecutorGroup executor, ChannelHandler... handlers) {
         ObjectUtil.checkNotNull(handlers, "handlers");
 
+        //遍历每个handler，加入到pipeline中
         for (ChannelHandler h: handlers) {
             if (h == null) {
                 break;
             }
+            //加入pipeline中
             addLast(executor, null, h);
         }
 

@@ -81,8 +81,10 @@ public class LineBasedFrameDecoder extends ByteToMessageDecoder {
 
     @Override
     protected final void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+        //在byteBuf中找到下一个完整的消息，decoded
         Object decoded = decode(ctx, in);
         if (decoded != null) {
+            //加入到out中
             out.add(decoded);
         }
     }
@@ -96,19 +98,27 @@ public class LineBasedFrameDecoder extends ByteToMessageDecoder {
      *                          be created.
      */
     protected Object decode(ChannelHandlerContext ctx, ByteBuf buffer) throws Exception {
+        //首先找到分隔符的位置eol
         final int eol = findEndOfLine(buffer);
+        //首先一开始会是非丢弃模式
+        //什么时候开启丢弃模式呢？是在未找到分隔符的情况下，且当前还是一个半包消息，则会打开丢弃模式
+        //这样下次读到下一个消息的时候就会直接丢掉下一个消息中分隔符前面的消息，然后重置为非丢弃模式
         if (!discarding) {
             if (eol >= 0) {
+                //如果找到了分隔符的位置
                 final ByteBuf frame;
                 final int length = eol - buffer.readerIndex();
                 final int delimLength = buffer.getByte(eol) == '\r'? 2 : 1;
 
+                //判断是否超过所指定的最大长度
                 if (length > maxLength) {
+                    //超过了则丢弃，返回null，上层会去解析下面的消息
                     buffer.readerIndex(eol + delimLength);
                     fail(ctx, length);
                     return null;
                 }
 
+                //如果没超过，则截取分隔符前的这段消息作为一个整包消息，返回放在out list中去
                 if (stripDelimiter) {
                     frame = buffer.readRetainedSlice(length);
                     buffer.skipBytes(delimLength);
@@ -118,8 +128,11 @@ public class LineBasedFrameDecoder extends ByteToMessageDecoder {
 
                 return frame;
             } else {
+                //如果没有找到分隔符的位置，说明接下来的字节是一个半包消息
                 final int length = buffer.readableBytes();
+                //判断该半包消息是否超过了最大长度
                 if (length > maxLength) {
+                    //如果超过了，那么下次后面的半段消息到来时需要将整个消息丢弃，因此开启丢弃模式
                     discardedBytes = length;
                     buffer.readerIndex(buffer.writerIndex());
                     discarding = true;
@@ -128,10 +141,14 @@ public class LineBasedFrameDecoder extends ByteToMessageDecoder {
                         fail(ctx, "over " + discardedBytes);
                     }
                 }
+                //如果没超过最大长度，返回null，半包消息会留存于聚合器中，等待下次的一起处理
                 return null;
             }
         } else {
+            //如果这次是丢弃模式，意味着之前有个半包消息超过了最大长度
             if (eol >= 0) {
+                //如果这次找到了分隔符的位置，直接跳过分隔符的位置处，丢弃上个消息
+                //并重置回非丢弃态
                 final int length = discardedBytes + eol - buffer.readerIndex();
                 final int delimLength = buffer.getByte(eol) == '\r'? 2 : 1;
                 buffer.readerIndex(eol + delimLength);
@@ -141,6 +158,7 @@ public class LineBasedFrameDecoder extends ByteToMessageDecoder {
                     fail(ctx, length);
                 }
             } else {
+                //如果还没找到，那么说明这仍然是个半包消息，并且需要被丢弃的，直接跳过整段
                 discardedBytes += buffer.readableBytes();
                 buffer.readerIndex(buffer.writerIndex());
                 // We skip everything in the buffer, we need to set the offset to 0 again.

@@ -266,13 +266,19 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
     protected void handlerRemoved0(ChannelHandlerContext ctx) throws Exception { }
 
     @Override
+    //解码的逻辑
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof ByteBuf) {
+            //可看作是一个list
             CodecOutputList out = CodecOutputList.newInstance();
             try {
                 first = cumulation == null;
+                //cumulator是一个聚合器，保存了上次处理剩余的消息byteBuf
+                //借助该聚合器实现了粘包拆包的处理
+                //这里当收到消息时，首先通过聚合器将上次残留的与本次相聚合
                 cumulation = cumulator.cumulate(ctx.alloc(),
                         first ? Unpooled.EMPTY_BUFFER : cumulation, (ByteBuf) msg);
+                //通过聚合器来实现解码的逻辑
                 callDecode(ctx, cumulation, out);
             } catch (DecoderException e) {
                 throw e;
@@ -292,6 +298,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
 
                 int size = out.size();
                 firedChannelRead |= out.insertSinceRecycled();
+                //继续传递解码后的读事件
                 fireChannelRead(ctx, out, size);
                 out.recycle();
             }
@@ -305,6 +312,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
      */
     static void fireChannelRead(ChannelHandlerContext ctx, List<Object> msgs, int numElements) {
         if (msgs instanceof CodecOutputList) {
+            //发送一批消息msgs到pipeline中
             fireChannelRead(ctx, (CodecOutputList) msgs, numElements);
         } else {
             for (int i = 0; i < numElements; i++) {
@@ -318,6 +326,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
      */
     static void fireChannelRead(ChannelHandlerContext ctx, CodecOutputList msgs, int numElements) {
         for (int i = 0; i < numElements; i ++) {
+            //遍历每个msg，丢到pipeline中
             ctx.fireChannelRead(msgs.getUnsafe(i));
         }
     }
@@ -415,11 +424,14 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
      */
     protected void callDecode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
         try {
+            //当聚合器内有可读字节
             while (in.isReadable()) {
                 int outSize = out.size();
 
+                //将out队列中的消息发送到pipeline中
                 if (outSize > 0) {
                     fireChannelRead(ctx, out, outSize);
+                    //清空队列，为下次解码填充作准备
                     out.clear();
 
                     // Check if this handler was removed before continuing with decoding.
@@ -433,7 +445,9 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                     outSize = 0;
                 }
 
+                //记录在解码前的可读字节数
                 int oldInputLength = in.readableBytes();
+                //执行子类解码逻辑
                 decodeRemovalReentryProtection(ctx, in, out);
 
                 // Check if this handler was removed before continuing the loop.
@@ -444,10 +458,15 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                     break;
                 }
 
+                //如果本次解析未解析出新的msg出来
                 if (outSize == out.size()) {
+                    //并且也没有读取任何的字节，则说明本次已经处理完所有消息
+                    //或者遇到了最后的那个半包消息
                     if (oldInputLength == in.readableBytes()) {
+                        //跳出循环，半包消息缓存在聚合器，下次再处理
                         break;
                     } else {
+                        //否则是个非法的（如超过了指定最大长度被直接跳过了），直接进行下次循环解析下一个消息
                         continue;
                     }
                 }
@@ -461,6 +480,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                 if (isSingleDecode()) {
                     break;
                 }
+                //如果解析出来消息msg，执行下一次循环
             }
         } catch (DecoderException e) {
             throw e;
@@ -495,6 +515,8 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
             throws Exception {
         decodeState = STATE_CALLING_CHILD_DECODE;
         try {
+            //交由子类完成，如根据长度/分隔符等处理拆包粘包
+            //子类会把解析的结果放在out队列里
             decode(ctx, in, out);
         } finally {
             boolean removePending = decodeState == STATE_HANDLER_REMOVED_PENDING;

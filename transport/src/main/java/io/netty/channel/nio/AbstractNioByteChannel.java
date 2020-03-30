@@ -171,6 +171,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                     byteBuf = null;
                 } while (allocHandle.continueReading());
 
+                //读取完后会根据本次读取的字节数动态扩容或缩容下次内存分配的大小
                 allocHandle.readComplete();
                 //当循环从channel中读完所有的数据以后出发ReadComplete事件
                 pipeline.fireChannelReadComplete();
