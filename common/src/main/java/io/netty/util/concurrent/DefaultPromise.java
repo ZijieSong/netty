@@ -176,13 +176,17 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         checkNotNull(listener, "listener");
 
         synchronized (this) {
+            //添加监听者逻辑
             addListener0(listener);
         }
 
+        //通过状态结果去判断是否已经完成了
         if (isDone()) {
+            //如果已经完成，直接回调
             notifyListeners();
         }
 
+        //未完成的话等待flush成功后自身的回调
         return this;
     }
 
@@ -487,6 +491,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
             if (stackDepth < MAX_LISTENER_STACK_DEPTH) {
                 threadLocals.setFutureListenerStackDepth(stackDepth + 1);
                 try {
+                    //关注这里
                     notifyListenersNow();
                 } finally {
                     threadLocals.setFutureListenerStackDepth(stackDepth);
@@ -546,6 +551,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         }
         for (;;) {
             if (listeners instanceof DefaultFutureListeners) {
+                //关注这里，通知所有的监听者
                 notifyListeners0((DefaultFutureListeners) listeners);
             } else {
                 notifyListener0(this, (GenericFutureListener<?>) listeners);
@@ -567,6 +573,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         GenericFutureListener<?>[] a = listeners.listeners();
         int size = listeners.size();
         for (int i = 0; i < size; i ++) {
+            //循环遍历每个监听者，进行通知
             notifyListener0(this, a[i]);
         }
     }
@@ -574,6 +581,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private static void notifyListener0(Future future, GenericFutureListener l) {
         try {
+            //回调逻辑
             l.operationComplete(future);
         } catch (Throwable t) {
             if (logger.isWarnEnabled()) {
@@ -584,10 +592,13 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
 
     private void addListener0(GenericFutureListener<? extends Future<? super V>> listener) {
         if (listeners == null) {
+            //如果一开始没有，则直接用listener作为成员变量
             listeners = listener;
         } else if (listeners instanceof DefaultFutureListeners) {
+            //如果已经有多个，则添加本次的listener
             ((DefaultFutureListeners) listeners).add(listener);
         } else {
+            //如果只有一个，则和本次的组成一个队列
             listeners = new DefaultFutureListeners((GenericFutureListener<?>) listeners, listener);
         }
     }
@@ -609,9 +620,11 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
     }
 
     private boolean setValue0(Object objResult) {
+        //设置成功or失败的状态
         if (RESULT_UPDATER.compareAndSet(this, null, objResult) ||
             RESULT_UPDATER.compareAndSet(this, UNCANCELLABLE, objResult)) {
             if (checkNotifyWaiters()) {
+                //通知所有监听者，此处为观察者模式
                 notifyListeners();
             }
             return true;

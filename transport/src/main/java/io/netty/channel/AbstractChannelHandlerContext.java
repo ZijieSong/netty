@@ -709,6 +709,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     @Override
     public ChannelFuture write(final Object msg, final ChannelPromise promise) {
+        //执行write逻辑
         write(msg, false, promise);
 
         return promise;
@@ -724,6 +725,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     private void invokeWrite0(Object msg, ChannelPromise promise) {
         try {
+            //交给handler执行write
             ((ChannelOutboundHandler) handler()).write(this, msg, promise);
         } catch (Throwable t) {
             notifyOutboundHandlerException(t, promise);
@@ -732,9 +734,11 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     @Override
     public ChannelHandlerContext flush() {
+        //找到下一个出站处理flush的handlerContext
         final AbstractChannelHandlerContext next = findContextOutbound(MASK_FLUSH);
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {
+            //执行flush
             next.invokeFlush();
         } else {
             Tasks tasks = next.invokeTasks;
@@ -765,13 +769,17 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     @Override
     public ChannelFuture writeAndFlush(Object msg, ChannelPromise promise) {
+        //写逻辑
         write(msg, true, promise);
+        //返回promise
         return promise;
     }
 
     void invokeWriteAndFlush(Object msg, ChannelPromise promise) {
         if (invokeHandler()) {
+            //执行write逻辑，带上promise
             invokeWrite0(msg, promise);
+            //执行flush逻辑
             invokeFlush0();
         } else {
             writeAndFlush(msg, promise);
@@ -791,18 +799,24 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
             throw e;
         }
 
+        //找到下一个出站handlerContext
         final AbstractChannelHandlerContext next = findContextOutbound(flush ?
                 (MASK_WRITE | MASK_FLUSH) : MASK_WRITE);
         final Object m = pipeline.touch(msg, next);
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {
+            //如果当前线程是selector线程，则同步执行invokeWriteAndFlush
             if (flush) {
+                //调用下一个出站context的invokeWriteAndFlush方法
                 next.invokeWriteAndFlush(m, promise);
             } else {
                 next.invokeWrite(m, promise);
             }
         } else {
+            //如果不是selector线程，则交给EventLoop去异步执行
+            //封装一个task
             final WriteTask task = WriteTask.newInstance(next, m, promise, flush);
+            //异步执行
             if (!safeExecute(executor, task, promise, m, !flush)) {
                 // We failed to submit the WriteTask. We need to cancel it so we decrement the pending bytes
                 // and put it back in the Recycler for re-use later.
@@ -815,6 +829,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     @Override
     public ChannelFuture writeAndFlush(Object msg) {
+        //写并刷新，同时生成一个promise
         return writeAndFlush(msg, newPromise());
     }
 
@@ -1017,6 +1032,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
             if (lazy && executor instanceof AbstractEventExecutor) {
                 ((AbstractEventExecutor) executor).lazyExecute(runnable);
             } else {
+                //异步执行
                 executor.execute(runnable);
             }
             return true;

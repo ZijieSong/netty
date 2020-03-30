@@ -45,6 +45,7 @@ public final class PromiseNotificationUtil {
      * Try to mark the {@link Promise} as success and log if {@code logger} is not {@code null} in case this fails.
      */
     public static <V> void trySuccess(Promise<? super V> p, V result, InternalLogger logger) {
+        //trySuccess回调
         if (!p.trySuccess(result) && logger != null) {
             Throwable err = p.cause();
             if (err == null) {

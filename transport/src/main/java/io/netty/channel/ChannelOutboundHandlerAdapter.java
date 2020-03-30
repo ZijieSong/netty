@@ -122,6 +122,7 @@ public class ChannelOutboundHandlerAdapter extends ChannelHandlerAdapter impleme
     @Skip
     @Override
     public void flush(ChannelHandlerContext ctx) throws Exception {
+        //直接传递
         ctx.flush();
     }
 }

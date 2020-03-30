@@ -111,7 +111,13 @@ public final class ChannelOutboundBuffer {
      * Add given message to this {@link ChannelOutboundBuffer}. The given {@link ChannelPromise} will be notified once
      * the message was written.
      */
+    //flushedEntry指向已flush的entry，unflushedEntry指向第一个未flush的entry
+    //tailEntry指向结尾entry
+    //从flushedEntry 到 unflushedEntry 之间的entry, 都是被已经被flush 的entry
+    //从unflushedEntry 到tailEntry 之间的entry 都是没flush 的entry
     public void addMessage(Object msg, int size, ChannelPromise promise) {
+        //通过msg，promise构建一个entry节点
+        //并将entry节点加入到缓冲队列中去
         Entry entry = Entry.newInstance(msg, size, total(msg), promise);
         if (tailEntry == null) {
             flushedEntry = null;
@@ -142,6 +148,7 @@ public final class ChannelOutboundBuffer {
         if (entry != null) {
             if (flushedEntry == null) {
                 // there is no flushedEntry yet, so start with the entry
+                //当没有已flushed节点时，指向unflushed所在位置
                 flushedEntry = entry;
             }
             do {
@@ -264,11 +271,13 @@ public final class ChannelOutboundBuffer {
         ChannelPromise promise = e.promise;
         int size = e.pendingSize;
 
+        //移除节点
         removeEntry(e);
 
         if (!e.cancelled) {
             // only release message, notify and decrement if it was not canceled before.
             ReferenceCountUtil.safeRelease(msg);
+            //写channel成功，触发回调通知
             safeSuccess(promise);
             decrementPendingOutboundBytes(size, false, true);
         }
@@ -324,6 +333,7 @@ public final class ChannelOutboundBuffer {
                 unflushedEntry = null;
             }
         } else {
+            //移动flushedEntry指针到下一个节点
             flushedEntry = e.next;
         }
     }

@@ -222,16 +222,22 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
         if (msg instanceof ByteBuf) {
             ByteBuf buf = (ByteBuf) msg;
             if (!buf.isReadable()) {
+                //如果buf不可读，则移除
                 in.remove();
                 return 0;
             }
 
+            //调用java api写消息到channel中
             final int localFlushedAmount = doWriteBytes(buf);
             if (localFlushedAmount > 0) {
+                //如果写入了部分字节，证明当前通道可写
+
                 in.progress(localFlushedAmount);
                 if (!buf.isReadable()) {
+                    //如果当前buf已经写完了，移除该节点
                     in.remove();
                 }
+                //返回1，注意在什么情况下返回1，是在通道可写的情况
                 return 1;
             }
         } else if (msg instanceof FileRegion) {
@@ -253,6 +259,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             // Should not reach here.
             throw new Error();
         }
+        //如果通道不可写直接返回max value
         return WRITE_STATUS_SNDBUF_FULL;
     }
 
@@ -260,16 +267,24 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
     protected void doWrite(ChannelOutboundBuffer in) throws Exception {
         int writeSpinCount = config().getWriteSpinCount();
         do {
+            //拿到当前节点的msg
             Object msg = in.current();
             if (msg == null) {
+                //如果为空代表已经处理完所有的entry节点
                 // Wrote all messages.
+                //移除write监听
                 clearOpWrite();
                 // Directly return here so incompleteWrite(...) is not called.
                 return;
             }
+            //执行核心写出逻辑
             writeSpinCount -= doWriteInternal(in, msg);
+            //当通道可写，则writeSpinCount减1，不可写直接减到负数
         } while (writeSpinCount > 0);
 
+        // 当writeSpinCount被减到0时，说明虽然通道可写，但是写入过多，为了防止影响task处理及其他io处理
+        // 则封装为task等下次eventLoop循环后写入
+        // 当writeSpinCount被减到负数时，说明此时通道不可写，则注册写监听，防止写半包
         incompleteWrite(writeSpinCount < 0);
     }
 
@@ -277,10 +292,12 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
     protected final Object filterOutboundMessage(Object msg) {
         if (msg instanceof ByteBuf) {
             ByteBuf buf = (ByteBuf) msg;
+            //如果是堆外内存，直接返回
             if (buf.isDirect()) {
                 return msg;
             }
 
+            //否则将堆内转换为堆外返回
             return newDirectBuffer(buf);
         }
 

@@ -880,6 +880,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
             int size;
             try {
+                //过滤消息，如果是堆外内存直接返回，如果是jvm内存则转换为堆外内存
                 msg = filterOutboundMessage(msg);
                 size = pipeline.estimatorHandle().size(msg);
                 if (size < 0) {
@@ -891,6 +892,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+            //将msg写到outboundBuffer中，outboundBuffer实际上是一个netty本地写缓冲区
+            //里边有一个entry链表结构用来缓存所有的msg
             outboundBuffer.addMessage(msg, size, promise);
         }
 
@@ -898,12 +901,15 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         public final void flush() {
             assertEventLoop();
 
+            //拿到netty本地写缓冲区
             ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
             if (outboundBuffer == null) {
                 return;
             }
 
+            //移动buffer中节点指针
             outboundBuffer.addFlush();
+            //遍历链表执行flush操作
             flush0();
         }
 
@@ -914,6 +920,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+            //取出写缓冲区
             final ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
             if (outboundBuffer == null || outboundBuffer.isEmpty()) {
                 return;
@@ -937,6 +944,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
 
             try {
+                //关注这里
                 doWrite(outboundBuffer);
             } catch (Throwable t) {
                 if (t instanceof IOException && config().isAutoClose()) {
