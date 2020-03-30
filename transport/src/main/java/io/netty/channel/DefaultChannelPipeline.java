@@ -919,6 +919,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
     @Override
     public final ChannelPipeline fireChannelRead(Object msg) {
+        //从头开始处理读事件
         AbstractChannelHandlerContext.invokeChannelRead(head, msg);
         return this;
     }
@@ -979,6 +980,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
     @Override
     public final ChannelFuture connect(SocketAddress remoteAddress, ChannelPromise promise) {
+        //从尾开始执行连接逻辑
         return tail.connect(remoteAddress, promise);
     }
 
@@ -1344,6 +1346,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
                 ChannelHandlerContext ctx,
                 SocketAddress remoteAddress, SocketAddress localAddress,
                 ChannelPromise promise) {
+            //通过unsafe执行connect
             unsafe.connect(remoteAddress, localAddress, promise);
         }
 
@@ -1413,6 +1416,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) {
+            //直接传递读事件
             ctx.fireChannelRead(msg);
         }
 

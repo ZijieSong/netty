@@ -245,6 +245,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
                 }
 
                 boolean wasActive = isActive();
+                //关注这里，真正的connect逻辑
                 if (doConnect(remoteAddress, localAddress)) {
                     fulfillConnectPromise(promise, wasActive);
                 } else {
@@ -358,6 +359,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         @Override
         public final void forceFlush() {
             // directly call super.flush0() to force a flush now
+            //直接调用刷新接口，从缓存刷到socket缓冲中
             super.flush0();
         }
 
