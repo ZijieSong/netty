@@ -129,9 +129,11 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
 
     @Override
     void init(Channel channel) {
+        //设置参数
         setChannelOptions(channel, newOptionsArray(), logger);
         setAttributes(channel, attrs0().entrySet().toArray(EMPTY_ATTRIBUTE_ARRAY));
 
+        //拿到该channel对应的pipeline，每个channel都有自己的pipeline进行无锁化串行执行
         ChannelPipeline p = channel.pipeline();
 
         final EventLoopGroup currentChildGroup = childGroup;
@@ -142,15 +144,19 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         }
         final Entry<AttributeKey<?>, Object>[] currentChildAttrs = childAttrs.entrySet().toArray(EMPTY_ATTRIBUTE_ARRAY);
 
+        //向serverSocketChannel的pipeline中加入初始化handler，会在该channel完成注册时进行回调
         p.addLast(new ChannelInitializer<Channel>() {
             @Override
             public void initChannel(final Channel ch) {
                 final ChannelPipeline pipeline = ch.pipeline();
+                //加入程序中用户手动添加的handler
                 ChannelHandler handler = config.handler();
                 if (handler != null) {
                     pipeline.addLast(handler);
                 }
 
+                //加入ServerBootstrapAcceptor，专门用于serverSocketChannel处理accept事件
+                //这里通过该channel对应的eventLoop提交任务，目的是启动该eventLoop线程，轮训selector
                 ch.eventLoop().execute(new Runnable() {
                     @Override
                     public void run() {

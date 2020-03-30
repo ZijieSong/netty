@@ -245,6 +245,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
     @Override
     public ChannelFuture bind(SocketAddress localAddress, ChannelPromise promise) {
+        //执行绑定
         return pipeline.bind(localAddress, promise);
     }
 
@@ -465,9 +466,11 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             AbstractChannel.this.eventLoop = eventLoop;
 
             if (eventLoop.inEventLoop()) {
+                //如果当前线程是selector线程，直接注册
                 register0(promise);
             } else {
                 try {
+                    //如果非selector线程，封装成task交给selector线程注册
                     eventLoop.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -493,6 +496,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                     return;
                 }
                 boolean firstRegistration = neverRegistered;
+                //执行真正的注册逻辑
                 doRegister();
                 neverRegistered = false;
                 registered = true;
@@ -501,12 +505,16 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 // user may already fire events through the pipeline in the ChannelFutureListener.
                 pipeline.invokeHandlerAddedIfNeeded();
 
+                //回调监听器的逻辑
                 safeSetSuccess(promise);
+                //向pipeline中传递注册事件
+                //这里会调用到init channel时注入的channel initializer逻辑
                 pipeline.fireChannelRegistered();
                 // Only fire a channelActive if the channel has never been registered. This prevents firing
                 // multiple channel actives if the channel is deregistered and re-registered.
                 if (isActive()) {
                     if (firstRegistration) {
+                        //第一次注册会出发channel active事件
                         pipeline.fireChannelActive();
                     } else if (config().isAutoRead()) {
                         // This channel was registered before and autoRead() is set. This means we need to begin read
@@ -547,6 +555,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
             boolean wasActive = isActive();
             try {
+                //关注这里的绑定逻辑
                 doBind(localAddress);
             } catch (Throwable t) {
                 safeSetFailure(promise, t);

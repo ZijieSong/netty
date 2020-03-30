@@ -37,6 +37,7 @@ public interface EventExecutorChooserFactory {
         /**
          * Returns the new {@link EventExecutor} to use.
          */
+        //策略模式，选择不同的选择器，达到的效果都是一样的，轮询拿到下一个eventLoop
         EventExecutor next();
     }
 }

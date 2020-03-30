@@ -201,8 +201,10 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         synchronized (this) {
             checkMultiplicity(handler);
 
+            //会给每个handler创建一个context
             newCtx = newContext(group, filterName(name, handler), handler);
 
+            //加到pipeline中
             addLast0(newCtx);
 
             // If the registered is false it means that the channel was not registered on an eventLoop yet.
@@ -812,6 +814,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
     @Override
     public final ChannelPipeline fireChannelRegistered() {
+        //从头传递注册事件
         AbstractChannelHandlerContext.invokeChannelRegistered(head);
         return this;
     }
@@ -970,6 +973,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
     @Override
     public final ChannelFuture bind(SocketAddress localAddress, ChannelPromise promise) {
+        //从尾开始执行绑定逻辑
         return tail.bind(localAddress, promise);
     }
 
@@ -1331,6 +1335,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         @Override
         public void bind(
                 ChannelHandlerContext ctx, SocketAddress localAddress, ChannelPromise promise) {
+            //通过unsafe做绑定
             unsafe.bind(localAddress, promise);
         }
 
@@ -1380,6 +1385,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         @Override
         public void channelRegistered(ChannelHandlerContext ctx) {
             invokeHandlerAddedIfNeeded();
+            //直接传递事件
             ctx.fireChannelRegistered();
         }
 

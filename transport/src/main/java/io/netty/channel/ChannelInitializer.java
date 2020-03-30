@@ -72,12 +72,17 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
 
     @Override
     @SuppressWarnings("unchecked")
+    //在注册完成后传递注册事件，会走到这里
     public final void channelRegistered(ChannelHandlerContext ctx) throws Exception {
         // Normally this method will never be called as handlerAdded(...) should call initChannel(...) and remove
         // the handler.
+
+        //初始化channel
         if (initChannel(ctx)) {
             // we called initChannel(...) so we need to call now pipeline.fireChannelRegistered() to ensure we not
             // miss an event.
+
+            //继续传递注册事件
             ctx.pipeline().fireChannelRegistered();
 
             // We are done with init the Channel, removing all the state for the Channel now.
@@ -126,12 +131,15 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
     private boolean initChannel(ChannelHandlerContext ctx) throws Exception {
         if (initMap.add(ctx)) { // Guard against re-entrance.
             try {
+                //初始化channel，走到子类的实现中，也就是程序中的匿名内部类的逻辑
+                //执行添加程序中手动添加的handler到pipeline中去
                 initChannel((C) ctx.channel());
             } catch (Throwable cause) {
                 // Explicitly call exceptionCaught(...) as we removed the handler before calling initChannel(...).
                 // We do so to prevent multiple calls to initChannel(...).
                 exceptionCaught(ctx, cause);
             } finally {
+                //执行完成后会从pipeline中remove掉本初始化handler
                 ChannelPipeline pipeline = ctx.pipeline();
                 if (pipeline.context(this) != null) {
                     pipeline.remove(this);
