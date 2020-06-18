@@ -299,6 +299,9 @@ final class PoolChunk<T> implements PoolChunkMetric {
         int id = 1;
         int initial = - (1 << d); // has last d bits = 0 and rest all = 1
         //val为当前节点的value，初始值为深度depth
+        //memory map是一个byte数组，其索引index代表哪个节点，是节点的id，其byte[index]代表节点的使用状态
+        //depth map是一个byte数组，index也是节点id，value是固定的，代表节点层级深度
+        //https://www.cnblogs.com/wuzhenzhao/p/11290533.html
         byte val = value(id);
         if (val > d) { // unusable
             return -1;
@@ -506,6 +509,12 @@ final class PoolChunk<T> implements PoolChunkMetric {
         return 1 << log2ChunkSize - depth(id);
     }
 
+    // runOffset的算法是 (memoryMapIdx ^ 1 << depth(memoryMapIdx)) * runLength(memoryMapIdx)
+    // (memoryMapIdx ^ 1 << depth(memoryMapIdx))是节点memoryMepIdx在深度为depth(memoryMapIdx)层上的偏移量doffset
+    // 即这一层前面还有doffset个节点
+    // 每个节点的内存大小是runLength(memoryMapIdx
+    // 所以doffset * runLength(memoryMapIdx)是节点memoryMapIdx在chunk内存上的偏移量
+    // 最后还要再加上一个offset，它是chuk在memory上的偏移量。
     private int runOffset(int id) {
         // represents the 0-based offset in #bytes from start of the byte-array chunk
         int shift = id ^ 1 << depth(id);
